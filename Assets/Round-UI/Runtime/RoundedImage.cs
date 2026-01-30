@@ -162,6 +162,32 @@ namespace RoundUI
         [SerializeField]
         private RoundingUnit _selectedUnit = RoundingUnit.PERCENTAGE;
 
+        // --- Gradient ---
+        [SerializeField]
+        private bool _gradientEnabled;
+
+        [SerializeField]
+        private Color _gradientColorA = Color.white;
+
+        [SerializeField]
+        private Color _gradientColorB = Color.black;
+
+        [SerializeField]
+        private GradientDirection _gradientDirection = GradientDirection.VERTICAL;
+
+        [SerializeField]
+        private float _gradientOffset = 0f;
+
+        /// <summary>
+        /// Per-instance material for effect parameters.
+        /// </summary>
+        private Material _instanceMaterial;
+
+        /// <summary>
+        /// Whether any effect requiring per-instance material is active.
+        /// </summary>
+        private bool AnyEffectActive => _gradientEnabled;
+
         /// <summary>
         /// The hitBox that handles the hit detection.
         /// </summary>
@@ -191,6 +217,50 @@ namespace RoundUI
             }
         }
         
+        /// <summary>
+        /// Returns the per-instance material when effects are active, otherwise the default.
+        /// </summary>
+        public override Material materialForRendering
+        {
+            get
+            {
+                if (AnyEffectActive)
+                {
+                    if (_instanceMaterial == null)
+                        _instanceMaterial = new Material(defaultMaterial);
+                    return _instanceMaterial;
+                }
+
+                if (_instanceMaterial != null)
+                {
+                    DestroyImmediate(_instanceMaterial);
+                    _instanceMaterial = null;
+                }
+                return base.materialForRendering;
+            }
+        }
+
+        // Shader property IDs
+        private static readonly int PropGradientEnabled = Shader.PropertyToID("_GradientEnabled");
+        private static readonly int PropGradientColorA = Shader.PropertyToID("_GradientColorA");
+        private static readonly int PropGradientColorB = Shader.PropertyToID("_GradientColorB");
+        private static readonly int PropGradientDirection = Shader.PropertyToID("_GradientDirection");
+        private static readonly int PropGradientOffset = Shader.PropertyToID("_GradientOffset");
+
+        /// <summary>
+        /// Updates the per-instance material with current effect parameters.
+        /// </summary>
+        private void UpdateMaterialProperties()
+        {
+            if (_instanceMaterial == null) return;
+
+            _instanceMaterial.SetFloat(PropGradientEnabled, _gradientEnabled ? 1 : 0);
+            _instanceMaterial.SetColor(PropGradientColorA, _gradientColorA);
+            _instanceMaterial.SetColor(PropGradientColorB, _gradientColorB);
+            _instanceMaterial.SetFloat(PropGradientDirection, (float)_gradientDirection);
+            _instanceMaterial.SetFloat(PropGradientOffset, _gradientOffset);
+        }
+
         /// <summary>
         /// Sends data of the image to the shader so we can create the rounded effect.
         /// </summary>
@@ -280,6 +350,12 @@ namespace RoundUI
             UseHitBoxInside = true;
             RoundingUnit = default;
             SetCornerRounding(0f, 0f, 0f, 0f);
+
+            _gradientEnabled = false;
+            _gradientColorA = Color.white;
+            _gradientColorB = Color.black;
+            _gradientDirection = GradientDirection.VERTICAL;
+            _gradientOffset = 0f;
         }
 #endif
         
@@ -348,13 +424,31 @@ namespace RoundUI
         }
         
         /// <summary>
-        /// Checks whether to update the image.
+        /// Checks whether to update the image and syncs material properties.
         /// </summary>
         private void Update()
         {
-            if (!_propertyChanged) return;
-            SetVerticesDirty();
-            _propertyChanged = false;
+            if (_propertyChanged)
+            {
+                SetVerticesDirty();
+                _propertyChanged = false;
+            }
+
+            if (AnyEffectActive)
+                UpdateMaterialProperties();
+        }
+
+        /// <summary>
+        /// Cleans up the per-instance material.
+        /// </summary>
+        protected override void OnDestroy()
+        {
+            base.OnDestroy();
+            if (_instanceMaterial != null)
+            {
+                DestroyImmediate(_instanceMaterial);
+                _instanceMaterial = null;
+            }
         }
 
         /// <summary>

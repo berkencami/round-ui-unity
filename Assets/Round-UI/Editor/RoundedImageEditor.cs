@@ -18,6 +18,13 @@ namespace RoundUI.Editor
         private SerializedProperty _useHitBoxOutside;
         private SerializedProperty _useHitBoxInside;
 
+        // Gradient properties
+        private SerializedProperty _gradientEnabled;
+        private SerializedProperty _gradientColorA;
+        private SerializedProperty _gradientColorB;
+        private SerializedProperty _gradientDirection;
+        private SerializedProperty _gradientOffset;
+
         // Base Image properties
         private SerializedProperty _imageType;
         private SerializedProperty _fillMethod;
@@ -36,6 +43,13 @@ namespace RoundUI.Editor
             _distanceFalloff = serializedObject.FindProperty("_distanceFalloff");
             _useHitBoxOutside = serializedObject.FindProperty("_useHitBoxOutside");
             _useHitBoxInside = serializedObject.FindProperty("_useHitBoxInside");
+
+            // Cache effect properties
+            _gradientEnabled = serializedObject.FindProperty("_gradientEnabled");
+            _gradientColorA = serializedObject.FindProperty("_gradientColorA");
+            _gradientColorB = serializedObject.FindProperty("_gradientColorB");
+            _gradientDirection = serializedObject.FindProperty("_gradientDirection");
+            _gradientOffset = serializedObject.FindProperty("_gradientOffset");
 
             // Cache base Image properties for Fill
             _imageType = serializedObject.FindProperty("m_Type");
@@ -91,6 +105,20 @@ namespace RoundUI.Editor
             if (_useHitBoxOutside.boolValue)
             {
                 EditorGUILayout.PropertyField(_useHitBoxInside, new GUIContent("Use HitBox Inside"));
+            }
+
+            // Gradient Section
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Gradient", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_gradientEnabled, new GUIContent("Enable Gradient"));
+            if (_gradientEnabled.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(_gradientColorA, new GUIContent("Color A"));
+                EditorGUILayout.PropertyField(_gradientColorB, new GUIContent("Color B"));
+                EditorGUILayout.PropertyField(_gradientDirection, new GUIContent("Direction"));
+                EditorGUILayout.Slider(_gradientOffset, -1f, 1f, new GUIContent("Offset"));
+                EditorGUI.indentLevel--;
             }
 
             serializedObject.ApplyModifiedProperties();

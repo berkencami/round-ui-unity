@@ -71,6 +71,30 @@ namespace RoundUI
     }
 
     /// <summary>
+    /// The direction used for gradient color blending.
+    /// </summary>
+    public enum GradientDirection
+    {
+        /// <summary>
+        /// Blends colors from top to bottom.
+        /// </summary>
+        [InspectorName("Vertical")]
+        VERTICAL = 0,
+
+        /// <summary>
+        /// Blends colors from left to right.
+        /// </summary>
+        [InspectorName("Horizontal")]
+        HORIZONTAL = 1,
+
+        /// <summary>
+        /// Blends colors diagonally.
+        /// </summary>
+        [InspectorName("Diagonal")]
+        DIAGONAL = 2,
+    }
+
+    /// <summary>
     /// Utility extension methods for Rect operations
     /// </summary>
     public static class RectUtilities
