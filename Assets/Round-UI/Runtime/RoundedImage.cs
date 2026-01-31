@@ -162,6 +162,37 @@ namespace RoundUI
         [SerializeField]
         private RoundingUnit _selectedUnit = RoundingUnit.PERCENTAGE;
 
+        // --- Gradient ---
+        [SerializeField]
+        private bool _gradientEnabled;
+
+        [SerializeField]
+        private Color _gradientColorA = Color.white;
+
+        [SerializeField]
+        private Color _gradientColorB = Color.black;
+
+        [SerializeField]
+        private GradientDirection _gradientDirection = GradientDirection.VERTICAL;
+
+        [SerializeField]
+        private float _gradientOffset = 0f;
+
+        // --- Outline ---
+        [SerializeField] private bool _outlineEnabled;
+        [SerializeField] private Color _outlineColor = Color.black;
+        [SerializeField] private float _outlineThickness = 0.05f;
+
+        /// <summary>
+        /// Per-instance material for effect parameters.
+        /// </summary>
+        private Material _instanceMaterial;
+
+        /// <summary>
+        /// Whether any effect requiring per-instance material is active.
+        /// </summary>
+        private bool AnyEffectActive => _gradientEnabled || _outlineEnabled;
+
         /// <summary>
         /// The hitBox that handles the hit detection.
         /// </summary>
@@ -191,6 +222,58 @@ namespace RoundUI
             }
         }
         
+        /// <summary>
+        /// Returns the per-instance material when effects are active, otherwise the default.
+        /// </summary>
+        public override Material materialForRendering
+        {
+            get
+            {
+                if (AnyEffectActive)
+                {
+                    if (_instanceMaterial == null)
+                        _instanceMaterial = new Material(defaultMaterial);
+                    return _instanceMaterial;
+                }
+
+                if (_instanceMaterial != null)
+                {
+                    DestroyImmediate(_instanceMaterial);
+                    _instanceMaterial = null;
+                }
+                return base.materialForRendering;
+            }
+        }
+
+        // Shader property IDs
+        private static readonly int PropGradientEnabled = Shader.PropertyToID("_GradientEnabled");
+        private static readonly int PropGradientColorA = Shader.PropertyToID("_GradientColorA");
+        private static readonly int PropGradientColorB = Shader.PropertyToID("_GradientColorB");
+        private static readonly int PropGradientDirection = Shader.PropertyToID("_GradientDirection");
+        private static readonly int PropGradientOffset = Shader.PropertyToID("_GradientOffset");
+
+        private static readonly int PropOutlineEnabled = Shader.PropertyToID("_OutlineEnabled");
+        private static readonly int PropOutlineColor = Shader.PropertyToID("_OutlineColor");
+        private static readonly int PropOutlineThickness = Shader.PropertyToID("_OutlineThickness");
+
+        /// <summary>
+        /// Updates the per-instance material with current effect parameters.
+        /// </summary>
+        private void UpdateMaterialProperties()
+        {
+            if (_instanceMaterial == null) return;
+
+            _instanceMaterial.SetFloat(PropGradientEnabled, _gradientEnabled ? 1 : 0);
+            _instanceMaterial.SetColor(PropGradientColorA, _gradientColorA);
+            _instanceMaterial.SetColor(PropGradientColorB, _gradientColorB);
+            _instanceMaterial.SetFloat(PropGradientDirection, (float)_gradientDirection);
+            _instanceMaterial.SetFloat(PropGradientOffset, _gradientOffset);
+
+            _instanceMaterial.SetFloat(PropOutlineEnabled, _outlineEnabled ? 1 : 0);
+            _instanceMaterial.SetColor(PropOutlineColor, _outlineColor);
+            _instanceMaterial.SetFloat(PropOutlineThickness, _outlineThickness);
+        }
+
         /// <summary>
         /// Sends data of the image to the shader so we can create the rounded effect.
         /// </summary>
@@ -230,6 +313,17 @@ namespace RoundUI
             var falloff = DistanceFalloff / (sprite == null ? 1 : 2);
             var uv3 = new Vector2(falloff, borderData);
 
+            // Expand mesh for outer outline
+            if (_outlineEnabled)
+            {
+                float effectExpand = _outlineThickness * Mathf.Min(displaySize.x, displaySize.y);
+                if (effectExpand > 0 && displaySize.x > 0 && displaySize.y > 0)
+                {
+                    x += effectExpand / displaySize.x;
+                    y += effectExpand / displaySize.y;
+                }
+            }
+
             var positionScalar = Vector3.one + new Vector3(x, y, 0) * 2;
             var uv0Offset = new Vector2((spriteOuterUV.z - spriteOuterUV.x) / 2 + spriteOuterUV.x, (spriteOuterUV.w - spriteOuterUV.y) / 2 + spriteOuterUV.y);
 
@@ -239,7 +333,7 @@ namespace RoundUI
                 vert.position.Scale(positionScalar);
 
 #if UNITY_2020_2_OR_NEWER
-                if (sprite != null)
+                if (sprite != null || _outlineEnabled)
                 {
                     vert.uv0 -= (Vector4)uv0Offset;
                     vert.uv0.Scale(positionScalar);
@@ -280,6 +374,16 @@ namespace RoundUI
             UseHitBoxInside = true;
             RoundingUnit = default;
             SetCornerRounding(0f, 0f, 0f, 0f);
+
+            _gradientEnabled = false;
+            _gradientColorA = Color.white;
+            _gradientColorB = Color.black;
+            _gradientDirection = GradientDirection.VERTICAL;
+            _gradientOffset = 0f;
+
+            _outlineEnabled = false;
+            _outlineColor = Color.black;
+            _outlineThickness = 0.05f;
         }
 #endif
         
@@ -348,13 +452,31 @@ namespace RoundUI
         }
         
         /// <summary>
-        /// Checks whether to update the image.
+        /// Checks whether to update the image and syncs material properties.
         /// </summary>
         private void Update()
         {
-            if (!_propertyChanged) return;
-            SetVerticesDirty();
-            _propertyChanged = false;
+            if (_propertyChanged)
+            {
+                SetVerticesDirty();
+                _propertyChanged = false;
+            }
+
+            if (AnyEffectActive)
+                UpdateMaterialProperties();
+        }
+
+        /// <summary>
+        /// Cleans up the per-instance material.
+        /// </summary>
+        protected override void OnDestroy()
+        {
+            base.OnDestroy();
+            if (_instanceMaterial != null)
+            {
+                DestroyImmediate(_instanceMaterial);
+                _instanceMaterial = null;
+            }
         }
 
         /// <summary>
