@@ -19,6 +19,11 @@ Shader "Hidden/RoundUI/RoundedCorners"
 		_GradientDirection("Gradient Direction", Float) = 0
 		_GradientOffset("Gradient Offset", Float) = 0
 
+		// Outline
+		_OutlineEnabled("Outline Enabled", Float) = 0
+		_OutlineColor("Outline Color", Color) = (0,0,0,1)
+		_OutlineThickness("Outline Thickness", Float) = 0.05
+
 	}
 
 	SubShader
@@ -64,6 +69,10 @@ Shader "Hidden/RoundUI/RoundedCorners"
 			float _GradientDirection;
 			float _GradientOffset;
 
+			float _OutlineEnabled;
+			fixed4 _OutlineColor;
+			float _OutlineThickness;
+
 			fixed4 frag(v2f i) : SV_Target {
 				float2 uv2x = decode2(i.uv2.x);
 				float2 uv2y = decode2(i.uv2.y);
@@ -82,6 +91,19 @@ Shader "Hidden/RoundUI/RoundedCorners"
 
 				// --- Main shape alpha ---
 				float mainAlpha = DynamicRoundedBox(roundedBoxUV, size, radii, falloff, border);
+
+				// --- Outline alpha ---
+				float outlineAlpha = 0;
+				if (_OutlineEnabled > 0.5)
+				{
+					float2 samplePos = (roundedBoxUV - 0.5) * size;
+					float minSize = min(size.x, size.y);
+					float dist = sdRoundedBox(samplePos, size * 0.5, radii * 0.5 * minSize);
+
+					float outerAlpha = AntialiasedCutoff(dist - _OutlineThickness * minSize, falloff);
+					float solidAlpha = AntialiasedCutoff(dist, falloff);
+					outlineAlpha = saturate(outerAlpha - solidAlpha);
+				}
 
 				// --- Base color from texture and vertex ---
 				fixed4 texColor = tex2D(_MainTex, i.uv);
@@ -105,9 +127,18 @@ Shader "Hidden/RoundUI/RoundedCorners"
 
 				// --- Compositing ---
 				fixed4 finalColor = fixed4(0, 0, 0, 0);
+
+				// Outer outline (behind main)
+				if (_OutlineEnabled > 0.5)
+				{
+					float oA = outlineAlpha * _OutlineColor.a;
+					finalColor = fixed4(_OutlineColor.rgb * oA, oA);
+				}
+
+				// Main shape
 				float mA = mainAlpha * col.a;
-				finalColor.rgb = col.rgb * mA;
-				finalColor.a = mA;
+				finalColor.rgb = finalColor.rgb * (1.0 - mA) + col.rgb * mA;
+				finalColor.a = finalColor.a * (1.0 - mA) + mA;
 
 				// Mask texture
 				finalColor.a *= tex2D(_MaskTex, i.uv).r;

@@ -178,6 +178,11 @@ namespace RoundUI
         [SerializeField]
         private float _gradientOffset = 0f;
 
+        // --- Outline ---
+        [SerializeField] private bool _outlineEnabled;
+        [SerializeField] private Color _outlineColor = Color.black;
+        [SerializeField] private float _outlineThickness = 0.05f;
+
         /// <summary>
         /// Per-instance material for effect parameters.
         /// </summary>
@@ -186,7 +191,7 @@ namespace RoundUI
         /// <summary>
         /// Whether any effect requiring per-instance material is active.
         /// </summary>
-        private bool AnyEffectActive => _gradientEnabled;
+        private bool AnyEffectActive => _gradientEnabled || _outlineEnabled;
 
         /// <summary>
         /// The hitBox that handles the hit detection.
@@ -247,6 +252,10 @@ namespace RoundUI
         private static readonly int PropGradientDirection = Shader.PropertyToID("_GradientDirection");
         private static readonly int PropGradientOffset = Shader.PropertyToID("_GradientOffset");
 
+        private static readonly int PropOutlineEnabled = Shader.PropertyToID("_OutlineEnabled");
+        private static readonly int PropOutlineColor = Shader.PropertyToID("_OutlineColor");
+        private static readonly int PropOutlineThickness = Shader.PropertyToID("_OutlineThickness");
+
         /// <summary>
         /// Updates the per-instance material with current effect parameters.
         /// </summary>
@@ -259,6 +268,10 @@ namespace RoundUI
             _instanceMaterial.SetColor(PropGradientColorB, _gradientColorB);
             _instanceMaterial.SetFloat(PropGradientDirection, (float)_gradientDirection);
             _instanceMaterial.SetFloat(PropGradientOffset, _gradientOffset);
+
+            _instanceMaterial.SetFloat(PropOutlineEnabled, _outlineEnabled ? 1 : 0);
+            _instanceMaterial.SetColor(PropOutlineColor, _outlineColor);
+            _instanceMaterial.SetFloat(PropOutlineThickness, _outlineThickness);
         }
 
         /// <summary>
@@ -300,6 +313,17 @@ namespace RoundUI
             var falloff = DistanceFalloff / (sprite == null ? 1 : 2);
             var uv3 = new Vector2(falloff, borderData);
 
+            // Expand mesh for outer outline
+            if (_outlineEnabled)
+            {
+                float effectExpand = _outlineThickness * Mathf.Min(displaySize.x, displaySize.y);
+                if (effectExpand > 0 && displaySize.x > 0 && displaySize.y > 0)
+                {
+                    x += effectExpand / displaySize.x;
+                    y += effectExpand / displaySize.y;
+                }
+            }
+
             var positionScalar = Vector3.one + new Vector3(x, y, 0) * 2;
             var uv0Offset = new Vector2((spriteOuterUV.z - spriteOuterUV.x) / 2 + spriteOuterUV.x, (spriteOuterUV.w - spriteOuterUV.y) / 2 + spriteOuterUV.y);
 
@@ -309,7 +333,7 @@ namespace RoundUI
                 vert.position.Scale(positionScalar);
 
 #if UNITY_2020_2_OR_NEWER
-                if (sprite != null)
+                if (sprite != null || _outlineEnabled)
                 {
                     vert.uv0 -= (Vector4)uv0Offset;
                     vert.uv0.Scale(positionScalar);
@@ -356,6 +380,10 @@ namespace RoundUI
             _gradientColorB = Color.black;
             _gradientDirection = GradientDirection.VERTICAL;
             _gradientOffset = 0f;
+
+            _outlineEnabled = false;
+            _outlineColor = Color.black;
+            _outlineThickness = 0.05f;
         }
 #endif
         

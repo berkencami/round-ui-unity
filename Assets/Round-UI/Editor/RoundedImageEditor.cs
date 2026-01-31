@@ -25,6 +25,11 @@ namespace RoundUI.Editor
         private SerializedProperty _gradientDirection;
         private SerializedProperty _gradientOffset;
 
+        // Outline properties
+        private SerializedProperty _outlineEnabled;
+        private SerializedProperty _outlineColor;
+        private SerializedProperty _outlineThickness;
+
         // Base Image properties
         private SerializedProperty _imageType;
         private SerializedProperty _fillMethod;
@@ -50,6 +55,10 @@ namespace RoundUI.Editor
             _gradientColorB = serializedObject.FindProperty("_gradientColorB");
             _gradientDirection = serializedObject.FindProperty("_gradientDirection");
             _gradientOffset = serializedObject.FindProperty("_gradientOffset");
+
+            _outlineEnabled = serializedObject.FindProperty("_outlineEnabled");
+            _outlineColor = serializedObject.FindProperty("_outlineColor");
+            _outlineThickness = serializedObject.FindProperty("_outlineThickness");
 
             // Cache base Image properties for Fill
             _imageType = serializedObject.FindProperty("m_Type");
@@ -118,6 +127,18 @@ namespace RoundUI.Editor
                 EditorGUILayout.PropertyField(_gradientColorB, new GUIContent("Color B"));
                 EditorGUILayout.PropertyField(_gradientDirection, new GUIContent("Direction"));
                 EditorGUILayout.Slider(_gradientOffset, -1f, 1f, new GUIContent("Offset"));
+                EditorGUI.indentLevel--;
+            }
+
+            // Outline Section
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Outline", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_outlineEnabled, new GUIContent("Enable Outline"));
+            if (_outlineEnabled.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(_outlineColor, new GUIContent("Color"));
+                EditorGUILayout.Slider(_outlineThickness, 0f, 0.5f, new GUIContent("Thickness"));
                 EditorGUI.indentLevel--;
             }
 
