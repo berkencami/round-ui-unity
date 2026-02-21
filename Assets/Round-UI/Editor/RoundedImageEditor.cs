@@ -30,6 +30,15 @@ namespace RoundUI.Editor
         private SerializedProperty _outlineColor;
         private SerializedProperty _outlineThickness;
 
+        // Shine properties
+        private SerializedProperty _shineEnabled;
+        private SerializedProperty _shineColor;
+        private SerializedProperty _shineAngle;
+        private SerializedProperty _shineWidth;
+        private SerializedProperty _shineIntensity;
+        private SerializedProperty _shineSpeed;
+        private SerializedProperty _shineLoop;
+
         // Base Image properties
         private SerializedProperty _imageType;
         private SerializedProperty _fillMethod;
@@ -59,6 +68,14 @@ namespace RoundUI.Editor
             _outlineEnabled = serializedObject.FindProperty("_outlineEnabled");
             _outlineColor = serializedObject.FindProperty("_outlineColor");
             _outlineThickness = serializedObject.FindProperty("_outlineThickness");
+
+            _shineEnabled = serializedObject.FindProperty("_shineEnabled");
+            _shineColor = serializedObject.FindProperty("_shineColor");
+            _shineAngle = serializedObject.FindProperty("_shineAngle");
+            _shineWidth = serializedObject.FindProperty("_shineWidth");
+            _shineIntensity = serializedObject.FindProperty("_shineIntensity");
+            _shineSpeed = serializedObject.FindProperty("_shineSpeed");
+            _shineLoop = serializedObject.FindProperty("_shineLoop");
 
             // Cache base Image properties for Fill
             _imageType = serializedObject.FindProperty("m_Type");
@@ -139,6 +156,22 @@ namespace RoundUI.Editor
                 EditorGUI.indentLevel++;
                 EditorGUILayout.PropertyField(_outlineColor, new GUIContent("Color"));
                 EditorGUILayout.Slider(_outlineThickness, 0f, 0.5f, new GUIContent("Thickness"));
+                EditorGUI.indentLevel--;
+            }
+
+            // Shine Section
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Shine", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_shineEnabled, new GUIContent("Enable Shine"));
+            if (_shineEnabled.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(_shineColor, new GUIContent("Color"));
+                EditorGUILayout.Slider(_shineAngle, 0f, 360f, new GUIContent("Angle"));
+                EditorGUILayout.Slider(_shineWidth, 0.01f, 0.5f, new GUIContent("Width"));
+                EditorGUILayout.Slider(_shineIntensity, 0f, 1f, new GUIContent("Intensity"));
+                EditorGUILayout.Slider(_shineSpeed, 0.1f, 5f, new GUIContent("Speed"));
+                EditorGUILayout.PropertyField(_shineLoop, new GUIContent("Loop"));
                 EditorGUI.indentLevel--;
             }
 

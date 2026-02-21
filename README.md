@@ -13,6 +13,7 @@
   - Works with Unity's standard UI system
   - Customizable outline with adjustable thickness and color
   - Gradient color effects (vertical, horizontal, diagonal) with configurable color stops
+  - Animated shine/shimmer sweep effect with adjustable angle, speed, and color
 
   ## Usage
 
