@@ -183,6 +183,15 @@ namespace RoundUI
         [SerializeField] private Color _outlineColor = Color.black;
         [SerializeField] private float _outlineThickness = 0.05f;
 
+        // --- Shine ---
+        [SerializeField] private bool _shineEnabled;
+        [SerializeField] private Color _shineColor = new Color(1, 1, 1, 0.6f);
+        [SerializeField] private float _shineAngle = 45f;
+        [SerializeField] private float _shineWidth = 0.15f;
+        [SerializeField] private float _shineIntensity = 0.6f;
+        [SerializeField] private float _shineSpeed = 1f;
+        [SerializeField] private bool _shineLoop = true;
+
         /// <summary>
         /// Per-instance material for effect parameters.
         /// </summary>
@@ -191,7 +200,7 @@ namespace RoundUI
         /// <summary>
         /// Whether any effect requiring per-instance material is active.
         /// </summary>
-        private bool AnyEffectActive => _gradientEnabled || _outlineEnabled;
+        private bool AnyEffectActive => _gradientEnabled || _outlineEnabled || _shineEnabled;
 
         /// <summary>
         /// The hitBox that handles the hit detection.
@@ -256,6 +265,13 @@ namespace RoundUI
         private static readonly int PropOutlineColor = Shader.PropertyToID("_OutlineColor");
         private static readonly int PropOutlineThickness = Shader.PropertyToID("_OutlineThickness");
 
+        private static readonly int PropShineEnabled = Shader.PropertyToID("_ShineEnabled");
+        private static readonly int PropShineColor = Shader.PropertyToID("_ShineColor");
+        private static readonly int PropShineAngle = Shader.PropertyToID("_ShineAngle");
+        private static readonly int PropShineWidth = Shader.PropertyToID("_ShineWidth");
+        private static readonly int PropShineIntensity = Shader.PropertyToID("_ShineIntensity");
+        private static readonly int PropShineProgress = Shader.PropertyToID("_ShineProgress");
+
         /// <summary>
         /// Updates the per-instance material with current effect parameters.
         /// </summary>
@@ -272,6 +288,20 @@ namespace RoundUI
             _instanceMaterial.SetFloat(PropOutlineEnabled, _outlineEnabled ? 1 : 0);
             _instanceMaterial.SetColor(PropOutlineColor, _outlineColor);
             _instanceMaterial.SetFloat(PropOutlineThickness, _outlineThickness);
+
+            _instanceMaterial.SetFloat(PropShineEnabled, _shineEnabled ? 1 : 0);
+            _instanceMaterial.SetColor(PropShineColor, _shineColor);
+            _instanceMaterial.SetFloat(PropShineAngle, _shineAngle * Mathf.Deg2Rad);
+            _instanceMaterial.SetFloat(PropShineWidth, _shineWidth);
+            _instanceMaterial.SetFloat(PropShineIntensity, _shineIntensity);
+
+            if (_shineEnabled)
+            {
+                float progress = (Time.time * _shineSpeed) % 1f;
+                if (!_shineLoop && Time.time * _shineSpeed >= 1f)
+                    progress = 1f;
+                _instanceMaterial.SetFloat(PropShineProgress, progress);
+            }
         }
 
         /// <summary>
@@ -384,6 +414,14 @@ namespace RoundUI
             _outlineEnabled = false;
             _outlineColor = Color.black;
             _outlineThickness = 0.05f;
+
+            _shineEnabled = false;
+            _shineColor = new Color(1, 1, 1, 0.6f);
+            _shineAngle = 45f;
+            _shineWidth = 0.15f;
+            _shineIntensity = 0.6f;
+            _shineSpeed = 1f;
+            _shineLoop = true;
         }
 #endif
         

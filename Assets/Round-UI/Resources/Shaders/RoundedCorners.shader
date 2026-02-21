@@ -24,6 +24,14 @@ Shader "Hidden/RoundUI/RoundedCorners"
 		_OutlineColor("Outline Color", Color) = (0,0,0,1)
 		_OutlineThickness("Outline Thickness", Float) = 0.05
 
+		// Shine
+		_ShineEnabled("Shine Enabled", Float) = 0
+		_ShineColor("Shine Color", Color) = (1,1,1,0.6)
+		_ShineAngle("Shine Angle", Float) = 0.7854
+		_ShineWidth("Shine Width", Float) = 0.15
+		_ShineIntensity("Shine Intensity", Float) = 0.6
+		_ShineProgress("Shine Progress", Float) = 0
+
 	}
 
 	SubShader
@@ -72,6 +80,13 @@ Shader "Hidden/RoundUI/RoundedCorners"
 			float _OutlineEnabled;
 			fixed4 _OutlineColor;
 			float _OutlineThickness;
+
+			float _ShineEnabled;
+			fixed4 _ShineColor;
+			float _ShineAngle;
+			float _ShineWidth;
+			float _ShineIntensity;
+			float _ShineProgress;
 
 			fixed4 frag(v2f i) : SV_Target {
 				float2 uv2x = decode2(i.uv2.x);
@@ -125,7 +140,7 @@ Shader "Hidden/RoundUI/RoundedCorners"
 					col *= gradColor;
 				}
 
-				// --- Compositing ---
+					// --- Compositing ---
 				fixed4 finalColor = fixed4(0, 0, 0, 0);
 
 				// Outer outline (behind main)
@@ -139,6 +154,21 @@ Shader "Hidden/RoundUI/RoundedCorners"
 				float mA = mainAlpha * col.a;
 				finalColor.rgb = finalColor.rgb * (1.0 - mA) + col.rgb * mA;
 				finalColor.a = finalColor.a * (1.0 - mA) + mA;
+
+				// --- Shine (on top of everything) ---
+				if (_ShineEnabled > 0.5)
+				{
+					float cosA = cos(_ShineAngle);
+					float sinA = sin(_ShineAngle);
+					float2 center = roundedBoxUV - 0.5;
+					float rotated = center.x * cosA + center.y * sinA;
+
+					float bandCenter = _ShineProgress * 2.0 - 1.0;
+					float dist = abs(rotated - bandCenter);
+					float shineValue = smoothstep(_ShineWidth, 0.0, dist) * _ShineIntensity * _ShineColor.a;
+
+					finalColor.rgb = lerp(finalColor.rgb, _ShineColor.rgb * finalColor.a, shineValue);
+				}
 
 				// Mask texture
 				finalColor.a *= tex2D(_MaskTex, i.uv).r;
