@@ -1,5 +1,4 @@
 using System;
-using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace RoundUI
@@ -110,29 +109,21 @@ namespace RoundUI
     /// </summary>
     public static class Encoding
     {
-        [StructLayout(LayoutKind.Explicit)]
-        private struct UIntFloat
-        {
-            [FieldOffset(0)]
-            public uint uintValue;
-            [FieldOffset(0)]
-            public float floatValue;
-        }
+        /// <summary>Steps per value (12 bits). 4096 * 4096 = 2^24, the largest integer range a float stores exactly.</summary>
+        private const int Steps = 4095;
 
         /// <summary>
-        /// Encodes two float values (0-1 range) into a single float by packing them as 16-bit values
+        /// Encodes two float values (0-1 range) into a single float as the integer
+        /// <c>round(b * 4095) * 4096 + round(a * 4095)</c>. The result is always an exact integer
+        /// below 2^24, so — unlike reinterpreting packed bits as a float — it can never form a NaN or
+        /// denormal bit pattern that a GPU or driver might flush or canonicalize.
+        /// Decoded by <c>decode2</c> in ShaderSetup.cginc.
         /// </summary>
         public static float EncodeFloats(float a, float b)
         {
-            a = Mathf.Clamp01(a);
-            b = Mathf.Clamp01(b);
-            a *= UInt16.MaxValue;
-            b *= UInt16.MaxValue;
-            var aInt = (UInt32)Mathf.FloorToInt(a);
-            var bInt = ((UInt32)Mathf.FloorToInt(b)) << 16;
-
-            var union = new UIntFloat { uintValue = aInt | bInt };
-            return union.floatValue;
+            int aInt = Mathf.RoundToInt(Mathf.Clamp01(a) * Steps);
+            int bInt = Mathf.RoundToInt(Mathf.Clamp01(b) * Steps);
+            return bInt * (Steps + 1) + aInt;
         }
     }
 }

@@ -9,8 +9,8 @@ struct appdata
 #else
 	float2 uv1     : TEXCOORD1;
 #endif
-	float2 uv2     : TEXCOORD2;
-	float2 uv3     : TEXCOORD3;
+	float2 uv2     : TEXCOORD2; // corner radii, two per float (see Encoding.EncodeFloats)
+	float4 uv3     : TEXCOORD3; // x: falloff, y: border, z: shine start time
 	float4 color   : COLOR;
     UNITY_VERTEX_INPUT_INSTANCE_ID
 };
@@ -23,16 +23,16 @@ struct v2f
 #else
 	float2 uv1           : TEXCOORD1;
 #endif
-	uint2 uv2            : TEXCOORD2;
-	float2 uv3           : TEXCOORD3;
+	// Packed integers: must not be interpolated, or the decode could round to a neighbour value.
+	nointerpolation float2 uv2 : TEXCOORD2;
+	float4 uv3           : TEXCOORD3;
 	float4 worldPosition : TEXCOORD4;
 	float4 vertex        : SV_POSITION;
 	float4 color         : COLOR;
     UNITY_VERTEX_OUTPUT_STEREO
 };
 
-#pragma multi_compile_local _ UNITY_UI_CLIP_RECT
-#pragma multi_compile_local _ UNITY_UI_ALPHACLIP
+// Keyword pragmas (UNITY_UI_CLIP_RECT / UNITY_UI_ALPHACLIP) are declared in RoundedCorners.shader.
 
 #include "UnityUI.cginc"
 
@@ -48,34 +48,21 @@ v2f vert(appdata v)
 	o.worldPosition = v.vertex;
 	o.uv = v.uv;
 	o.uv1 = v.uv1;
-	o.uv2 = asuint(v.uv2);
+	o.uv2 = v.uv2;
 	o.uv3 = v.uv3;
 	o.color = v.color;
 	return o;
 }
 
-inline fixed4 mixAlpha(fixed4 mainTexColor, float2 uv, fixed4 color, float4 world, float sdfAlpha) 
+// Decodes two 0..1 values packed as integers: value = round(b * 4095) * 4096 + round(a * 4095).
+// Every packed value is an integer below 2^24, so it is exact in a float — no bit reinterpretation,
+// no NaN/denormal patterns that some GPUs or drivers would flush or canonicalize.
+float2 decode2(float value)
 {
-	fixed4 col = mainTexColor * color;
-	col.a = min(col.a, sdfAlpha);
-	col.a *= tex2D(_MaskTex, uv).r;
-
-#ifdef UNITY_UI_CLIP_RECT
-	col.a *= UnityGet2DClipping(world.xy, _ClipRect);
-#endif
-
-#ifdef UNITY_UI_ALPHACLIP
-	clip(color.a - 0.001);
-#endif
-
-	return col;
-}
-
-float2 decode2(uint value) 
-{
-	uint aInt = value & 0x0000ffff;
-	uint bInt = (value & 0xffff0000) >> 16;
-	return float2((float)aInt, bInt) / 0x0000ffff;
+	float v = round(value);
+	float hi = floor(v / 4096.0);
+	float lo = v - hi * 4096.0;
+	return float2(lo, hi) / 4095.0;
 }
 
 float sdRoundedBox(in float2 p, in float2 s, in float4 r)

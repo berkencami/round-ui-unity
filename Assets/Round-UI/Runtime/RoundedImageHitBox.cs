@@ -9,11 +9,6 @@ namespace RoundUI
     {
         private readonly RoundedImage _roundedImage;
 
-        /// <summary>
-        /// Gets the bounding rectangle for hitbox calculations
-        /// </summary>
-        private Rect HitBoxRect => new (_roundedImage.rectTransform.rect.position, _roundedImage.GetImageSize());
-
         public RoundedImageHitBox(RoundedImage roundedImage)
         {
             _roundedImage = roundedImage;
@@ -22,36 +17,49 @@ namespace RoundUI
         /// <summary>
         /// Tests if a screen position is inside the rounded image hitbox
         /// </summary>
-        public bool HitTest(Vector2 screenPosition)
+        /// <param name="screenPosition">Screen point of the pointer event.</param>
+        /// <param name="eventCamera">The event camera (null for Screen Space - Overlay canvases).</param>
+        public bool HitTest(Vector2 screenPosition, Camera eventCamera)
         {
             // If hitBox detection is disabled, always return true
-            if (!_roundedImage.UseHitBoxOutside && !_roundedImage.UseHitBoxInside)
+            if (!_roundedImage.UseHitBoxOutside)
                 return true;
 
-            // Get corner radii and pack them for SDF calculation
-            var radii = _roundedImage.GetCornerRounding();
-            var rounding = new Vector4(
-                radii[Corner.TOP_RIGHT],
-                radii[Corner.BOTTOM_RIGHT],
-                radii[Corner.TOP_LEFT],
-                radii[Corner.BOTTOM_LEFT]
-            );
+            // Transform the screen point into the rect's local space. Works for every canvas render
+            // mode because the event camera is taken into account.
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    _roundedImage.rectTransform, screenPosition, eventCamera, out var localPosition))
+                return false;
 
-            // Calculate border radius
-            var borderRadius = HitBoxRect.GetShortLength() * 0.25f;
+            // The SDF is centered on the drawn image, which is not the pivot unless the pivot is (0.5, 0.5).
+            var imageRect = _roundedImage.GetImageRect();
+            localPosition -= imageRect.center;
+
+            // Corner radii packed for the SDF (no allocation — this runs on every pointer move).
+            var rounding = _roundedImage.GetCornerRoundingPacked();
+
+            // Only a border with the inside hitbox enabled is a ring (its hole is not clickable).
+            // Everything else is tested as a solid shape — modelling a filled shape as a ring of
+            // half the short side put its inner edge exactly on the center, so center clicks were
+            // rejected depending on float rounding.
+            float? borderRadius = null;
             if (_roundedImage.UseHitBoxInside && _roundedImage.Mode == RoundingMode.BORDER)
-                borderRadius *= _roundedImage.BorderThickness;
+                borderRadius = imageRect.GetShortLength() * 0.25f * _roundedImage.BorderThickness;
 
-            // Transform screen position to local space
-            Vector2 localPosition = _roundedImage.rectTransform.InverseTransformPoint(screenPosition);
+            // The outline is drawn outside the shape, so it extends the clickable area outward.
+            var outlineWidth = _roundedImage.OutlineWidth(imageRect);
 
-            return PerformHitTest(localPosition, HitBoxRect.size, rounding, borderRadius, _roundedImage.DistanceFalloff);
+            return PerformHitTest(localPosition, imageRect.size, rounding, borderRadius, outlineWidth,
+                _roundedImage.DistanceFalloff);
         }
 
         /// <summary>
-        /// Performs SDF-based hit testing
+        /// Performs SDF-based hit testing. The clickable region is every point whose signed
+        /// distance to the shape edge lies in [inner, outer]: outer = outline width (0 without one),
+        /// inner = -(ring width) for a border with the inside hitbox, otherwise unbounded (solid).
         /// </summary>
-        private bool PerformHitTest(Vector2 samplePosition, Vector2 size, Vector4 radii, float borderDistance, float falloff)
+        private bool PerformHitTest(Vector2 samplePosition, Vector2 size, Vector4 radii, float? borderDistance,
+            float outlineWidth, float falloff)
         {
             // Transform radii to pixel space
             var minDimension = Mathf.Min(size.x, size.y);
@@ -59,10 +67,12 @@ namespace RoundUI
 
             // Calculate distance from rounded box edge using SDF
             var distance = RoundedBoxSDF(samplePosition, size * 0.5f, transformedRadii);
-            var distanceWithBorder = Mathf.Abs(distance + borderDistance) - borderDistance;
-            var distanceWithBorderAndFalloff = distanceWithBorder - falloff * 0.5f;
 
-            return distanceWithBorderAndFalloff < 0;
+            var outer = outlineWidth + falloff * 0.5f;
+            if (distance >= outer)
+                return false;
+
+            return !borderDistance.HasValue || distance > -2f * borderDistance.Value;
         }
 
         /// <summary>

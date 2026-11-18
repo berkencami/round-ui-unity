@@ -102,6 +102,13 @@ namespace RoundUI
         }
 
         /// <summary>
+        /// Outer outline width in local units (0 when the outline is off). Used by the hitbox so the
+        /// outline is clickable too.
+        /// </summary>
+        internal float OutlineWidth(Rect imageRect) =>
+            _outlineEnabled ? Mathf.Max(0f, _outlineThickness) * imageRect.GetShortLength() : 0f;
+
+        /// <summary>
         /// The current rounding unit mode for this image.
         /// </summary>
         public RoundingUnit RoundingUnit
@@ -192,15 +199,38 @@ namespace RoundUI
         [SerializeField] private float _shineSpeed = 1f;
         [SerializeField] private bool _shineLoop = true;
 
-        /// <summary>
-        /// Per-instance material for effect parameters.
-        /// </summary>
-        private Material _instanceMaterial;
+        // --- Drop Shadow ---
+        [SerializeField] private bool _shadowEnabled;
+        [SerializeField] private Color _shadowColor = new Color(0, 0, 0, 0.5f);
+        [SerializeField] private Vector2 _shadowOffset = new Vector2(4f, -4f);
+        [SerializeField] private float _shadowBlur = 8f;
+        [SerializeField] private float _shadowSpread = 0f;
 
         /// <summary>
-        /// Whether any effect requiring per-instance material is active.
+        /// Time (same clock as the shader's <c>_Time.y</c>) at which this image was last enabled.
         /// </summary>
-        private bool AnyEffectActive => _gradientEnabled || _outlineEnabled || _shineEnabled;
+        private float _shineStartTime;
+
+        /// <summary>
+        /// Shared effect material from <see cref="RoundedImageMaterialPool"/> (null while no effect is enabled).
+        /// </summary>
+        private Material _effectMaterial;
+
+        /// <summary>
+        /// The settings <see cref="_effectMaterial"/> was acquired with.
+        /// </summary>
+        private EffectSettings _effectMaterialSettings;
+
+        /// <summary>
+        /// Whether any effect that lives on the material is active.
+        /// </summary>
+        private bool AnyEffectActive => _gradientEnabled || _outlineEnabled || _shineEnabled || _shadowEnabled;
+
+        private EffectSettings CurrentEffectSettings => new EffectSettings(
+            _gradientEnabled, _gradientColorA, _gradientColorB, _gradientDirection, _gradientOffset,
+            _outlineEnabled, _outlineColor, _outlineThickness,
+            _shineEnabled, _shineColor, _shineAngle, _shineWidth, _shineIntensity, _shineSpeed, _shineLoop,
+            _shadowEnabled, _shadowColor, _shadowOffset, _shadowBlur, _shadowSpread);
 
         /// <summary>
         /// The hitBox that handles the hit detection.
@@ -232,76 +262,40 @@ namespace RoundUI
         }
         
         /// <summary>
-        /// Returns the per-instance material when effects are active, otherwise the default.
+        /// The base material. While effects are enabled this is a pooled material shared by every
+        /// image with identical effect settings, so those images batch together.
+        /// Overriding <c>material</c> (instead of <c>materialForRendering</c>) keeps Unity's
+        /// material-modifier chain intact, so <see cref="Mask"/> / stencil clipping keeps working.
         /// </summary>
-        public override Material materialForRendering
+        public override Material material
         {
             get
             {
-                if (AnyEffectActive)
+                if (!AnyEffectActive)
                 {
-                    if (_instanceMaterial == null)
-                        _instanceMaterial = new Material(defaultMaterial);
-                    return _instanceMaterial;
+                    ReleaseEffectMaterial();
+                    return base.material;
                 }
 
-                if (_instanceMaterial != null)
+                var settings = CurrentEffectSettings;
+                if (_effectMaterial == null || !settings.Equals(_effectMaterialSettings))
                 {
-                    DestroyImmediate(_instanceMaterial);
-                    _instanceMaterial = null;
+                    // Acquire before releasing so an unchanged entry is never destroyed and recreated.
+                    var acquired = RoundedImageMaterialPool.Acquire(settings, defaultMaterial);
+                    ReleaseEffectMaterial();
+                    _effectMaterial = acquired;
+                    _effectMaterialSettings = settings;
                 }
-                return base.materialForRendering;
+                return _effectMaterial;
             }
+            set => base.material = value;
         }
 
-        // Shader property IDs
-        private static readonly int PropGradientEnabled = Shader.PropertyToID("_GradientEnabled");
-        private static readonly int PropGradientColorA = Shader.PropertyToID("_GradientColorA");
-        private static readonly int PropGradientColorB = Shader.PropertyToID("_GradientColorB");
-        private static readonly int PropGradientDirection = Shader.PropertyToID("_GradientDirection");
-        private static readonly int PropGradientOffset = Shader.PropertyToID("_GradientOffset");
-
-        private static readonly int PropOutlineEnabled = Shader.PropertyToID("_OutlineEnabled");
-        private static readonly int PropOutlineColor = Shader.PropertyToID("_OutlineColor");
-        private static readonly int PropOutlineThickness = Shader.PropertyToID("_OutlineThickness");
-
-        private static readonly int PropShineEnabled = Shader.PropertyToID("_ShineEnabled");
-        private static readonly int PropShineColor = Shader.PropertyToID("_ShineColor");
-        private static readonly int PropShineAngle = Shader.PropertyToID("_ShineAngle");
-        private static readonly int PropShineWidth = Shader.PropertyToID("_ShineWidth");
-        private static readonly int PropShineIntensity = Shader.PropertyToID("_ShineIntensity");
-        private static readonly int PropShineProgress = Shader.PropertyToID("_ShineProgress");
-
-        /// <summary>
-        /// Updates the per-instance material with current effect parameters.
-        /// </summary>
-        private void UpdateMaterialProperties()
+        private void ReleaseEffectMaterial()
         {
-            if (_instanceMaterial == null) return;
-
-            _instanceMaterial.SetFloat(PropGradientEnabled, _gradientEnabled ? 1 : 0);
-            _instanceMaterial.SetColor(PropGradientColorA, _gradientColorA);
-            _instanceMaterial.SetColor(PropGradientColorB, _gradientColorB);
-            _instanceMaterial.SetFloat(PropGradientDirection, (float)_gradientDirection);
-            _instanceMaterial.SetFloat(PropGradientOffset, _gradientOffset);
-
-            _instanceMaterial.SetFloat(PropOutlineEnabled, _outlineEnabled ? 1 : 0);
-            _instanceMaterial.SetColor(PropOutlineColor, _outlineColor);
-            _instanceMaterial.SetFloat(PropOutlineThickness, _outlineThickness);
-
-            _instanceMaterial.SetFloat(PropShineEnabled, _shineEnabled ? 1 : 0);
-            _instanceMaterial.SetColor(PropShineColor, _shineColor);
-            _instanceMaterial.SetFloat(PropShineAngle, _shineAngle * Mathf.Deg2Rad);
-            _instanceMaterial.SetFloat(PropShineWidth, _shineWidth);
-            _instanceMaterial.SetFloat(PropShineIntensity, _shineIntensity);
-
-            if (_shineEnabled)
-            {
-                float progress = (Time.time * _shineSpeed) % 1f;
-                if (!_shineLoop && Time.time * _shineSpeed >= 1f)
-                    progress = 1f;
-                _instanceMaterial.SetFloat(PropShineProgress, progress);
-            }
+            if (_effectMaterial == null) return;
+            RoundedImageMaterialPool.Release(_effectMaterialSettings);
+            _effectMaterial = null;
         }
 
         /// <summary>
@@ -312,8 +306,9 @@ namespace RoundUI
         {
             base.OnPopulateMesh(vh);
 
-            var rounding = GetCornerRounding();
-            var displaySize = GetImageSize();
+            var rounding = GetCornerRoundingPacked();
+            var imageRect = GetImageRect();
+            var displaySize = imageRect.size;
             var borderData = (_roundingMode == RoundingMode.BORDER ? BorderThickness : 1) * Mathf.Min(displaySize.x, displaySize.y) * MAX_FACTOR_BORDER;
 
             // Account for falloff.
@@ -321,8 +316,8 @@ namespace RoundUI
 
             // Encode corner values into single floats. Optimization so we only have to use one UV.
             // Data should be decoded in the shader.
-            var rightSideEncoded = Encoding.EncodeFloats(rounding[Corner.TOP_RIGHT], rounding[Corner.BOTTOM_RIGHT]);
-            var leftSideEncoded = Encoding.EncodeFloats(rounding[Corner.TOP_LEFT], rounding[Corner.BOTTOM_LEFT]);
+            var rightSideEncoded = Encoding.EncodeFloats(rounding.x, rounding.y); // top right, bottom right
+            var leftSideEncoded = Encoding.EncodeFloats(rounding.z, rounding.w);  // top left, bottom left
 
             var spriteOuterUV = sprite == null ? new Vector4(0, 0, 1, 1) : UnityEngine.Sprites.DataUtility.GetOuterUV(sprite);
 
@@ -341,29 +336,45 @@ namespace RoundUI
             var uv2 = new Vector2(rightSideEncoded, leftSideEncoded);
 
             var falloff = DistanceFalloff / (sprite == null ? 1 : 2);
-            var uv3 = new Vector2(falloff, borderData);
+            // z: when this image was enabled, so a one-shot (non-looping) shine starts from then.
+            // Stored per vertex rather than on the material so the material can stay shared.
+            var uv3 = new Vector4(falloff, borderData, _shineStartTime, 0f);
 
-            // Expand mesh for outer outline
-            if (_outlineEnabled)
+            // Expand mesh so outer effects (outline, drop shadow) have room to be drawn.
+            var outlineExpand = _outlineEnabled ? _outlineThickness * Mathf.Min(displaySize.x, displaySize.y) : 0f;
+            var expandX = outlineExpand;
+            var expandY = outlineExpand;
+
+            if (_shadowEnabled)
             {
-                float effectExpand = _outlineThickness * Mathf.Min(displaySize.x, displaySize.y);
-                if (effectExpand > 0 && displaySize.x > 0 && displaySize.y > 0)
-                {
-                    x += effectExpand / displaySize.x;
-                    y += effectExpand / displaySize.y;
-                }
+                // Shadow silhouette = shape (+ outline) grown by spread, softened by half the blur on each side.
+                var shadowExtent = outlineExpand + Mathf.Max(0f, _shadowSpread) + Mathf.Max(0f, _shadowBlur) * 0.5f;
+                expandX = Mathf.Max(expandX, shadowExtent + Mathf.Abs(_shadowOffset.x));
+                expandY = Mathf.Max(expandY, shadowExtent + Mathf.Abs(_shadowOffset.y));
+            }
+
+            var expandsMesh = (expandX > 0 || expandY > 0) && displaySize.x > 0 && displaySize.y > 0;
+            if (expandsMesh)
+            {
+                x += expandX / displaySize.x;
+                y += expandY / displaySize.y;
             }
 
             var positionScalar = Vector3.one + new Vector3(x, y, 0) * 2;
             var uv0Offset = new Vector2((spriteOuterUV.z - spriteOuterUV.x) / 2 + spriteOuterUV.x, (spriteOuterUV.w - spriteOuterUV.y) / 2 + spriteOuterUV.y);
 
+            // Scale around the center of the drawn image (not the pivot) so the expanded mesh
+            // stays aligned with the UVs, which are scaled around their own center.
+            var meshCenter = imageRect.center;
+
             for (int i = 0; i < vh.currentVertCount; i++)
             {
                 vh.PopulateUIVertex(ref vert, i);
-                vert.position.Scale(positionScalar);
+                vert.position.x = meshCenter.x + (vert.position.x - meshCenter.x) * positionScalar.x;
+                vert.position.y = meshCenter.y + (vert.position.y - meshCenter.y) * positionScalar.y;
 
 #if UNITY_2020_2_OR_NEWER
-                if (sprite != null || _outlineEnabled)
+                if (sprite != null || expandsMesh)
                 {
                     vert.uv0 -= (Vector4)uv0Offset;
                     vert.uv0.Scale(positionScalar);
@@ -422,6 +433,12 @@ namespace RoundUI
             _shineIntensity = 0.6f;
             _shineSpeed = 1f;
             _shineLoop = true;
+
+            _shadowEnabled = false;
+            _shadowColor = new Color(0, 0, 0, 0.5f);
+            _shadowOffset = new Vector2(4f, -4f);
+            _shadowBlur = 8f;
+            _shadowSpread = 0f;
         }
 #endif
         
@@ -432,7 +449,7 @@ namespace RoundUI
         /// <param name="eventCamera">The camera used for creating the event.</param>
         /// <returns>Whether the screen point hit the graphic.</returns>
         public override bool IsRaycastLocationValid(Vector2 screenPoint, Camera eventCamera)
-            => HitBox.HitTest(screenPoint) && base.IsRaycastLocationValid(screenPoint, eventCamera);
+            => HitBox.HitTest(screenPoint, eventCamera) && base.IsRaycastLocationValid(screenPoint, eventCamera);
 
         /// <summary>
         /// Returns the percentage rounding of the given corner.
@@ -454,6 +471,17 @@ namespace RoundUI
         /// Returns a dictionary with the rounding in percentages from every corner mapped by the corner.
         /// </summary>
         /// <returns>A dictionary with the rounding in percentages from every corner mapped by the corner.</returns>
+        /// <summary>
+        /// Allocation-free version of <see cref="GetCornerRounding()"/> used on hot paths
+        /// (mesh generation, raycasts). Packed as (top right, bottom right, top left, bottom left),
+        /// the order the shader and hitbox SDF expect.
+        /// </summary>
+        internal Vector4 GetCornerRoundingPacked() => new Vector4(
+            GetCornerRounding(Corner.TOP_RIGHT),
+            GetCornerRounding(Corner.BOTTOM_RIGHT),
+            GetCornerRounding(Corner.TOP_LEFT),
+            GetCornerRounding(Corner.BOTTOM_LEFT));
+
         public Dictionary<Corner, float> GetCornerRounding()
         {
             var output = new Dictionary<Corner, float>(4);
@@ -480,17 +508,23 @@ namespace RoundUI
         /// The visual size of the image inside the Rect Transform.
         /// </summary>
         /// <returns>The visual size of the image inside the Rect Transform.</returns>
-        public Vector2 GetImageSize()
+        public Vector2 GetImageSize() => GetImageRect().size;
+
+        /// <summary>
+        /// The visual rect of the image inside the Rect Transform, in local space.
+        /// </summary>
+        internal Rect GetImageRect()
         {
             var imageRect = GetPixelAdjustedRect();
             if (preserveAspect && sprite != null)
                 PreserveSpriteAspectRatio(ref imageRect, sprite.rect.size);
 
-            return imageRect.size;
+            return imageRect;
         }
         
         /// <summary>
-        /// Checks whether to update the image and syncs material properties.
+        /// Checks whether to update the image. Effect materials need no per-frame work:
+        /// the shine animates in the shader from <c>_Time</c>.
         /// </summary>
         private void Update()
         {
@@ -499,22 +533,102 @@ namespace RoundUI
                 SetVerticesDirty();
                 _propertyChanged = false;
             }
+        }
 
-            if (AnyEffectActive)
-                UpdateMaterialProperties();
+        protected override void OnEnable()
+        {
+            // Matches the shader's _Time.y in Play Mode. In Edit Mode a one-shot shine is not replayed.
+            _shineStartTime = Application.isPlaying ? Time.timeSinceLevelLoad : 0f;
+            base.OnEnable(); // marks the mesh dirty, so the new start time reaches the vertices
+            EnsureCanvasShaderChannels();
+            ApplyOutlineRaycastPadding();
+        }
+
+        protected override void OnDisable()
+        {
+            RestoreRaycastPadding();
+            base.OnDisable();
+        }
+
+        protected override void OnRectTransformDimensionsChange()
+        {
+            base.OnRectTransformDimensionsChange();
+            ApplyOutlineRaycastPadding(); // outline width scales with the image size
+        }
+
+#if UNITY_EDITOR
+        protected override void OnValidate()
+        {
+            base.OnValidate();
+            ApplyOutlineRaycastPadding(); // outline toggled/resized in the Inspector during Play Mode
+        }
+#endif
+
+        /// <summary>
+        /// How far the raycast padding is currently grown for the outline. Only this delta is ever
+        /// added/removed, so the user's own padding (and any change they make to it) is preserved.
+        /// </summary>
+        private float _outlinePaddingApplied;
+
+        /// <summary>
+        /// <see cref="GraphicRaycaster"/> rejects points outside the RectTransform (+ raycast padding)
+        /// before the rounded hitbox runs, but the outline is drawn outside the rect. Grow the padding by
+        /// the outline width so the outline is clickable. Play Mode only, so the serialized padding in
+        /// the scene is never changed; the delta is removed again when the image is disabled.
+        /// </summary>
+        private void ApplyOutlineRaycastPadding()
+        {
+            if (!Application.isPlaying || !isActiveAndEnabled) return;
+
+            var width = OutlineWidth(GetImageRect());
+            if (Mathf.Approximately(width, _outlinePaddingApplied)) return;
+
+            // Negative padding enlarges the raycast area.
+            var delta = width - _outlinePaddingApplied;
+            raycastPadding -= new Vector4(delta, delta, delta, delta);
+            _outlinePaddingApplied = width;
+        }
+
+        private void RestoreRaycastPadding()
+        {
+            if (_outlinePaddingApplied == 0f) return;
+            var w = _outlinePaddingApplied;
+            raycastPadding += new Vector4(w, w, w, w);
+            _outlinePaddingApplied = 0f;
+        }
+
+        protected override void OnCanvasHierarchyChanged()
+        {
+            base.OnCanvasHierarchyChanged();
+            EnsureCanvasShaderChannels();
         }
 
         /// <summary>
-        /// Cleans up the per-instance material.
+        /// The shader reads size, corner radii and falloff/border data from UV1–UV3.
+        /// A Canvas only forwards those channels when they are enabled in
+        /// <see cref="Canvas.additionalShaderChannels"/>, so make sure they are
+        /// (otherwise the image renders garbage on a freshly created Canvas).
+        /// </summary>
+        private void EnsureCanvasShaderChannels()
+        {
+            const AdditionalCanvasShaderChannels required =
+                AdditionalCanvasShaderChannels.TexCoord1 |
+                AdditionalCanvasShaderChannels.TexCoord2 |
+                AdditionalCanvasShaderChannels.TexCoord3;
+
+            var c = canvas;
+            if (c == null) return;
+            if ((c.additionalShaderChannels & required) != required)
+                c.additionalShaderChannels |= required;
+        }
+
+        /// <summary>
+        /// Returns the pooled effect material.
         /// </summary>
         protected override void OnDestroy()
         {
             base.OnDestroy();
-            if (_instanceMaterial != null)
-            {
-                DestroyImmediate(_instanceMaterial);
-                _instanceMaterial = null;
-            }
+            ReleaseEffectMaterial();
         }
 
         /// <summary>
