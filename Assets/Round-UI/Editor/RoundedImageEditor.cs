@@ -39,6 +39,13 @@ namespace RoundUI.Editor
         private SerializedProperty _shineSpeed;
         private SerializedProperty _shineLoop;
 
+        // Drop shadow properties
+        private SerializedProperty _shadowEnabled;
+        private SerializedProperty _shadowColor;
+        private SerializedProperty _shadowOffset;
+        private SerializedProperty _shadowBlur;
+        private SerializedProperty _shadowSpread;
+
         // Base Image properties
         private SerializedProperty _imageType;
         private SerializedProperty _fillMethod;
@@ -76,6 +83,12 @@ namespace RoundUI.Editor
             _shineIntensity = serializedObject.FindProperty("_shineIntensity");
             _shineSpeed = serializedObject.FindProperty("_shineSpeed");
             _shineLoop = serializedObject.FindProperty("_shineLoop");
+
+            _shadowEnabled = serializedObject.FindProperty("_shadowEnabled");
+            _shadowColor = serializedObject.FindProperty("_shadowColor");
+            _shadowOffset = serializedObject.FindProperty("_shadowOffset");
+            _shadowBlur = serializedObject.FindProperty("_shadowBlur");
+            _shadowSpread = serializedObject.FindProperty("_shadowSpread");
 
             // Cache base Image properties for Fill
             _imageType = serializedObject.FindProperty("m_Type");
@@ -127,6 +140,10 @@ namespace RoundUI.Editor
             EditorGUILayout.LabelField("HitBox", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_useHitBoxOutside, new GUIContent("Use HitBox Outside"));
 
+            // The inside hitbox only makes sense together with the outside one (mirrors the runtime setter).
+            if (!_useHitBoxOutside.boolValue && _useHitBoxInside.boolValue)
+                _useHitBoxInside.boolValue = false;
+
             // Only show inside hitbox option when outside hitbox is enabled
             if (_useHitBoxOutside.boolValue)
             {
@@ -172,6 +189,20 @@ namespace RoundUI.Editor
                 EditorGUILayout.Slider(_shineIntensity, 0f, 1f, new GUIContent("Intensity"));
                 EditorGUILayout.Slider(_shineSpeed, 0.1f, 5f, new GUIContent("Speed"));
                 EditorGUILayout.PropertyField(_shineLoop, new GUIContent("Loop"));
+                EditorGUI.indentLevel--;
+            }
+
+            // Drop Shadow Section
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Drop Shadow", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_shadowEnabled, new GUIContent("Enable Shadow"));
+            if (_shadowEnabled.boolValue)
+            {
+                EditorGUI.indentLevel++;
+                EditorGUILayout.PropertyField(_shadowColor, new GUIContent("Color"));
+                EditorGUILayout.PropertyField(_shadowOffset, new GUIContent("Offset", "Shadow offset in UI units. Negative Y moves the shadow down."));
+                EditorGUILayout.Slider(_shadowBlur, 0f, 100f, new GUIContent("Blur", "Softness of the shadow edge in UI units."));
+                EditorGUILayout.Slider(_shadowSpread, -50f, 50f, new GUIContent("Spread", "Grows (positive) or shrinks (negative) the shadow in UI units."));
                 EditorGUI.indentLevel--;
             }
 
@@ -292,11 +323,13 @@ namespace RoundUI.Editor
         [MenuItem("GameObject/UI/RoundUI Image")]
         public static void CreateRoundedImage()
         {
-            var go = new GameObject("RoundUI Image")
+            var go = new GameObject("RoundUI Image",
+                typeof(RectTransform), typeof(CanvasRenderer), typeof(RoundedImage))
             {
                 layer = LayerMask.NameToLayer("UI")
             };
-            
+            ((RectTransform)go.transform).sizeDelta = new Vector2(200f, 200f);
+
             // Try to parent to selected object or canvas
             if (Selection.activeGameObject != null && Selection.activeGameObject.GetComponentInParent<Canvas>() != null)
             {
@@ -305,16 +338,47 @@ namespace RoundUI.Editor
             else
             {
                 // Find or create canvas
-                var canvas = FindObjectOfType<Canvas>();
+                var canvas = FindAnyObjectByType<Canvas>();
                 if (canvas == null)
-                    EditorApplication.ExecuteMenuItem("GameObject/UI/Canvas");
+                    canvas = CreateCanvas();
 
-                canvas = FindObjectOfType<Canvas>();
-                if (canvas != null)
-                    go.transform.SetParent(canvas.transform, false);
+                go.transform.SetParent(canvas.transform, false);
             }
 
+            Undo.RegisterCreatedObjectUndo(go, "Create RoundUI Image");
             Selection.activeGameObject = go;
+        }
+
+        /// <summary>
+        /// Creates a Screen Space Overlay canvas (and an EventSystem when the scene has none).
+        /// Built in code because the built-in "Create Canvas" menu path differs between Unity versions.
+        /// </summary>
+        private static Canvas CreateCanvas()
+        {
+            int uiLayer = LayerMask.NameToLayer("UI");
+
+            var canvasGo = new GameObject("Canvas",
+                typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster))
+            {
+                layer = uiLayer
+            };
+            var canvas = canvasGo.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            Undo.RegisterCreatedObjectUndo(canvasGo, "Create Canvas");
+
+            if (FindAnyObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
+            {
+                // Prefer the Input System UI module when that package is installed.
+                var inputModule = System.Type.GetType(
+                    "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem")
+                    ?? typeof(UnityEngine.EventSystems.StandaloneInputModule);
+
+                var eventSystemGo = new GameObject("EventSystem",
+                    typeof(UnityEngine.EventSystems.EventSystem), inputModule);
+                Undo.RegisterCreatedObjectUndo(eventSystemGo, "Create EventSystem");
+            }
+
+            return canvas;
         }
     }
 }

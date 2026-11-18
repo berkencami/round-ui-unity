@@ -27,10 +27,18 @@ Shader "Hidden/RoundUI/RoundedCorners"
 		// Shine
 		_ShineEnabled("Shine Enabled", Float) = 0
 		_ShineColor("Shine Color", Color) = (1,1,1,0.6)
-		_ShineAngle("Shine Angle", Float) = 0.7854
+		_ShineDirection("Shine Direction", Vector) = (0.7071,0.7071,0,0)
 		_ShineWidth("Shine Width", Float) = 0.15
 		_ShineIntensity("Shine Intensity", Float) = 0.6
-		_ShineProgress("Shine Progress", Float) = 0
+		_ShineSpeed("Shine Speed", Float) = 1
+		_ShineLoop("Shine Loop", Float) = 1
+
+		// Drop Shadow
+		_ShadowEnabled("Shadow Enabled", Float) = 0
+		_ShadowColor("Shadow Color", Color) = (0,0,0,0.5)
+		_ShadowOffset("Shadow Offset", Vector) = (4,-4,0,0)
+		_ShadowBlur("Shadow Blur", Float) = 8
+		_ShadowSpread("Shadow Spread", Float) = 0
 
 	}
 
@@ -56,7 +64,8 @@ Shader "Hidden/RoundUI/RoundedCorners"
 		Lighting Off
 		ZTest [unity_GUIZTestMode]
 		ColorMask [_ColorMask]
-		Blend SrcAlpha OneMinusSrcAlpha
+		// Fragment output is premultiplied alpha.
+		Blend One OneMinusSrcAlpha
 		ZWrite Off
 
 		Pass
@@ -67,6 +76,11 @@ Shader "Hidden/RoundUI/RoundedCorners"
 
 			#pragma vertex vert
 			#pragma fragment frag
+
+			// Must live in the shader itself — keyword pragmas inside an include file are not
+			// turned into variants, which silently disabled RectMask2D and Mask alpha clipping.
+			#pragma multi_compile_local _ UNITY_UI_CLIP_RECT
+			#pragma multi_compile_local _ UNITY_UI_ALPHACLIP
 
 			sampler2D _MainTex;
 
@@ -83,10 +97,17 @@ Shader "Hidden/RoundUI/RoundedCorners"
 
 			float _ShineEnabled;
 			fixed4 _ShineColor;
-			float _ShineAngle;
+			float4 _ShineDirection; // (cos, sin) of the angle, computed on the CPU
 			float _ShineWidth;
 			float _ShineIntensity;
-			float _ShineProgress;
+			float _ShineSpeed;
+			float _ShineLoop;
+
+			float _ShadowEnabled;
+			fixed4 _ShadowColor;
+			float4 _ShadowOffset;
+			float _ShadowBlur;
+			float _ShadowSpread;
 
 			fixed4 frag(v2f i) : SV_Target {
 				float2 uv2x = decode2(i.uv2.x);
@@ -140,13 +161,14 @@ Shader "Hidden/RoundUI/RoundedCorners"
 					col *= gradColor;
 				}
 
-					// --- Compositing ---
+				// --- Compositing (premultiplied alpha) ---
 				fixed4 finalColor = fixed4(0, 0, 0, 0);
 
 				// Outer outline (behind main)
 				if (_OutlineEnabled > 0.5)
 				{
-					float oA = outlineAlpha * _OutlineColor.a;
+					// Multiplied by vertex alpha so Image color alpha / CanvasGroup fades also fade the outline.
+					float oA = outlineAlpha * _OutlineColor.a * i.color.a;
 					finalColor = fixed4(_OutlineColor.rgb * oA, oA);
 				}
 
@@ -155,30 +177,80 @@ Shader "Hidden/RoundUI/RoundedCorners"
 				finalColor.rgb = finalColor.rgb * (1.0 - mA) + col.rgb * mA;
 				finalColor.a = finalColor.a * (1.0 - mA) + mA;
 
-				// --- Shine (on top of everything) ---
+				// --- Shine (on top of the shape, not the shadow) ---
 				if (_ShineEnabled > 0.5)
 				{
-					float cosA = cos(_ShineAngle);
-					float sinA = sin(_ShineAngle);
-					float2 center = roundedBoxUV - 0.5;
-					float rotated = center.x * cosA + center.y * sinA;
+					float2 dir = _ShineDirection.xy;
 
-					float bandCenter = _ShineProgress * 2.0 - 1.0;
-					float dist = abs(rotated - bandCenter);
-					float shineValue = smoothstep(_ShineWidth, 0.0, dist) * _ShineIntensity * _ShineColor.a;
+					// Animated on the GPU from _Time so the material never has to be updated
+					// per frame (and can be shared between images for batching).
+					// Looping shines share the global clock (so equal buttons stay in sync); a one-shot
+					// shine counts from the moment its image was enabled (uv3.z, set per image).
+					float cycles = _ShineLoop > 0.5 ? _Time.y * _ShineSpeed : (_Time.y - i.uv3.z) * _ShineSpeed;
+					float progress = _ShineLoop > 0.5 ? frac(cycles) : saturate(cycles);
+
+					// Work in pixel space so the angle is the same visual angle for any aspect
+					// ratio (in normalized UV space a wide button and a square badge would show
+					// the same angle value at very different slants).
+					float2 p = (roundedBoxUV - 0.5) * size;
+					float halfExtent = max(0.5 * (abs(dir.x) * size.x + abs(dir.y) * size.y), 1e-4);
+					float t = dot(p, dir) / halfExtent; // -1..1 across the shape
+
+					// Sweep from fully off one side to fully off the other, with a short pause.
+					float bandCenter = (progress * 2.0 - 1.0) * 1.5;
+					float dist = abs(t - bandCenter);
+					float shineValue = smoothstep(_ShineWidth * 1.5, 0.0, dist) * _ShineIntensity * _ShineColor.a;
 
 					finalColor.rgb = lerp(finalColor.rgb, _ShineColor.rgb * finalColor.a, shineValue);
 				}
 
-				// Mask texture
-				finalColor.a *= tex2D(_MaskTex, i.uv).r;
+				// Alpha of the shape itself (fill + outline, no shadow). Used for alpha clipping so a
+				// RoundedImage acting as a Mask only masks its visible shape, not its drop shadow.
+				float contentAlpha = finalColor.a;
+
+				// --- Drop shadow (behind everything) ---
+				if (_ShadowEnabled > 0.5)
+				{
+					float minSize = min(size.x, size.y);
+					float2 shadowPos = (roundedBoxUV - 0.5) * size - _ShadowOffset.xy;
+					float d = sdRoundedBox(shadowPos, size * 0.5, radii * 0.5 * minSize);
+
+					// Silhouette covers the main shape plus the outer outline band.
+					float outer = (_OutlineEnabled > 0.5) ? _OutlineThickness * minSize : 0;
+					float normalizedBorder = border / 0.25 / minSize;
+					if (normalizedBorder > 0.999)
+					{
+						d -= outer;
+					}
+					else
+					{
+						// Border mode: ring between the inner border edge and the outer edge.
+						float inner = -2.0 * border;
+						d = abs(d - (outer + inner) * 0.5) - (outer - inner) * 0.5;
+					}
+					d -= _ShadowSpread;
+
+					// Soft edge centered on the silhouette, half the blur on each side.
+					float halfBlur = _ShadowBlur * 0.5;
+					// Multiplied by vertex alpha so Image color alpha / CanvasGroup fades also fade the shadow.
+					float sA = AntialiasedCutoff(d - halfBlur, falloff + halfBlur) * _ShadowColor.a * i.color.a;
+
+					// Shape over shadow.
+					finalColor.rgb = finalColor.rgb + _ShadowColor.rgb * sA * (1.0 - finalColor.a);
+					finalColor.a = finalColor.a + sA * (1.0 - finalColor.a);
+				}
+
+				// Mask texture and rect clipping (applied to rgb too since output is premultiplied)
+				float visibility = tex2D(_MaskTex, i.uv).r;
 
 				#ifdef UNITY_UI_CLIP_RECT
-				finalColor.a *= UnityGet2DClipping(i.worldPosition.xy, _ClipRect);
+				visibility *= UnityGet2DClipping(i.worldPosition.xy, _ClipRect);
 				#endif
 
+				finalColor *= visibility;
+
 				#ifdef UNITY_UI_ALPHACLIP
-				clip(finalColor.a - 0.001);
+				clip(contentAlpha * visibility - 0.001);
 				#endif
 
 				return finalColor;
